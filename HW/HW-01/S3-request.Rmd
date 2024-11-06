@@ -36,11 +36,11 @@ files <- get_bucket_df(
   as_tibble()
 #Downloading files
 save_object(
-  object = "hurricane.csv",
+  object = "recid.csv",
   bucket = "s3://survival2024/",
   region = "us-east-1",
-  file = "hurricane"
+  file = "recid"
 )
-df <- read.csv("hurricane")
+df <- read.csv("recid")
 head(df)
 ```
