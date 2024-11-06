@@ -1,0 +1,46 @@
+---
+title: "AWS S3 Data Pull"
+author: "Sterling Hayden"
+date: "2024-11-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(aws.s3)
+library(survival)
+library(foreign)
+library(ggplot2)
+library(survminer)
+library(rms)
+library(flexsurv)
+library(dplyr)
+library(ciTools)
+library(here)
+library(visreg)
+library(cmprsk)
+library(reticulate)
+```
+
+
+## Loading Data
+```{r}
+#Finding the AWS S3 bucket
+bucket_exists(
+  bucket = "s3://survival2024/",
+  region = "us-east-1")
+files <- get_bucket_df(
+  bucket = "s3://survival2024/",
+  region = "us-east-1",
+  max = 20000) %>%
+  as_tibble()
+#Downloading files
+save_object(
+  object = "hurricane.csv",
+  bucket = "s3://survival2024/",
+  region = "us-east-1",
+  file = "hurricane"
+)
+df <- read.csv("hurricane")
+head(df)
+```
