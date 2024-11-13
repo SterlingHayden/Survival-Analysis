@@ -322,7 +322,7 @@ library(dplyr)
 servo_cost <- 150000
 backup_cost <- 100000
 
-# Assume `data` is the name of your dataframe in R
+# Process the dataframe
 combined_df <- data %>%
   # Calculate benefit per dollar for servo and backup upgrades
   mutate(
@@ -343,6 +343,11 @@ combined_df <- data %>%
     Upgrade_Cost = ifelse(Source == "Servo", servo_cost, backup_cost)
   ) %>%
   
+  # Group by 'index' and keep only the row with the highest benefit per dollar for each pump
+  group_by(index) %>%
+  filter(Highest_Benefit_per_Dollar == max(Highest_Benefit_per_Dollar)) %>%
+  ungroup() %>%
+  
   # Sort the dataframe by Highest Benefit per Dollar in descending order
   arrange(desc(Highest_Benefit_per_Dollar)) %>%
   
@@ -356,6 +361,7 @@ result <- combined_df %>%
 
 # Display the result
 print(result)
+
 
 ```
 
