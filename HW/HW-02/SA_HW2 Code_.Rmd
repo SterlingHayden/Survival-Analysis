@@ -1,0 +1,372 @@
+---
+title: "SA_HW2_Code"
+author: "Patience Jones"
+date: "2024-11-11"
+output: html_document
+---
+
+Loding data and libraries
+```{r setup, include=FALSE}
+#### Load Data with AWS ####
+library(aws.s3)
+library(survival)
+library(foreign)
+library(ggplot2)
+library(survminer)
+library(rms)
+library(flexsurv)
+library(dplyr)
+library(ciTools)
+library(here)
+library(visreg)
+library(cmprsk)
+
+library(reticulate)
+
+#Finding the AWS S3 bucket
+bucket_exists(
+  bucket = "s3://survival2024/",
+  region = "us-east-1"
+)
+files <- get_bucket_df(
+  bucket = "s3://survival2024/",
+  region = "us-east-1",
+  max = 20000
+) %>%
+  as_tibble()
+#Downloading files
+save_object(
+  object = "hurricane.csv", #Change file name here
+  bucket = "s3://survival2024/",
+  region = "us-east-1",
+  file = "hurricane" #Change file name here
+)
+df_hurricane <- read.csv("hurricane")
+```
+
+Cleaning the data
+
+```{r cars}
+# creating a censored column for all reasons not flood
+df_hurricane$censored <- ifelse(df_hurricane$reason == 1, 1, 0)
+
+# subsetting columns for analysis
+df <- df_hurricane[,c(1:8, 57:61)]
+```
+
+RUNNING MODELS
+
+Log-Normal
+
+```{r pressure, echo=FALSE}
+#### Lognormal Function ####
+hurr.aft.ln <- survreg(Surv(hour, censored) ~ backup + age + bridgecrane +
+                             servo + gear + trashrack + slope + elevation,
+                           data = df, dist = "lognormal")
+summary(hurr.aft.ln)
+
+#Parameter interpretation
+(exp(coef(hurr.aft.ln))-1)*100
+
+# Distribution
+hurr.aft.ln <- flexsurvreg(Surv(hour, censored) ~ backup + age + bridgecrane +
+                         servo + gear + trashrack + slope + elevation,
+                       data = df, dist = "lognormal")
+plot(hurr.aft.ln, type = "cumhaz", ci = TRUE, conf.int = FALSE, las = 1, bty = "n",
+     xlab = "week", ylab = "Cumulative Hazard", main = "Log-Normal Distribution")
+```
+
+Weibull
+```{r}
+#### Weibull Function ####
+hurr.aft.w <- survreg(Surv(hour, censored) ~ backup + age + bridgecrane +
+                         servo + gear + trashrack + slope + elevation, 
+                       data = df, dist = 'weibull')
+summary(hurr.aft.w)
+
+#Parameter interpretation
+(exp(coef(hurr.aft.w))-1)*100
+
+# Distribution
+hurr.aft.w <- flexsurvreg(Surv(hour, censored) ~ backup + age + bridgecrane +
+                        servo + gear + trashrack + slope + elevation, 
+                      data = df, dist = 'weibull')
+plot(hurr.aft.w, type = "cumhaz", ci = TRUE, conf.int = FALSE, las = 1, bty = "n",
+     xlab = "Hour", ylab = "Cumulative Hazard", main = "Weibull Distribution")
+
+```
+
+Gamma
+```{r}
+#### Gamma ####
+# Distribution
+hurr.aft.g <- flexsurvreg(Surv(hour, censored) ~ backup + age + bridgecrane +
+                             servo + gear + trashrack + slope + elevation, 
+                           data = df, dist = "gamma")
+
+plot(hurr.aft.g, type = "cumhaz", ci = TRUE, conf.int = FALSE, las = 1, bty = "n",
+     xlab = "Hour", ylab = "Cumulative Hazard", main = "Gamma Distribution")
+
+```
+
+Log-Logistic
+```{r}
+#### Log-Logistic ####
+hurr.aft.ll <- flexsurvreg(Surv(hour, censored) ~ backup + age + bridgecrane +
+                              servo + gear + trashrack + slope + elevation, 
+                            data = df, dist = "llogis")
+
+plot(hurr.aft.ll, type = "cumhaz", ci = TRUE, conf.int = FALSE, las = 1, bty = "n",
+     xlab = "week", ylab = "Cumulative Hazard", main = "Log-Logistic Distribution")
+
+```
+
+Exponential
+```{r}
+#### Exponential #####
+hurr.aft.e <- flexsurvreg(Surv(hour, censored) ~ backup + age + bridgecrane +
+                              servo + gear + trashrack + slope + elevation, 
+                            data = df, dist = "exp")
+
+plot(hurr.aft.e, type = "cumhaz", ci = TRUE, conf.int = FALSE, las = 1, bty = "n",
+     xlab = "week", ylab = "Cumulative Hazard", main = "Exponential Distribution")
+
+```
+
+Statistical Testing
+```{r}
+#### Statistical Testing ####
+# Goodness-of-Fit Tests 
+
+like.e <- hurr.aft.e$loglik
+like.w <- hurr.aft.w$loglik
+like.ln <-hurr.aft.ln$loglik
+like.g <- hurr.aft.g$loglik
+like.ll <- hurr.aft.ll$loglik
+
+pval.e.g = pchisq((-2*(like.e-like.g)), 2,lower.tail=F)
+pval.w.g = pchisq((-2*(like.w-like.g)), 1,lower.tail=F)
+pval.ln.g = pchisq((-2*(like.ln-like.g)), 1,lower.tail=F)
+
+Tests = c('Exp vs. Gam', 'Wei vs. Gam', 'LogN vs. Gam')
+P_values = c(pval.e.g, pval.w.g, pval.ln.g)
+cbind(Tests, P_values)
+
+```
+
+Weibull and Gam were the same so I picked Weibull
+```{r}
+hurr.aft.w <- survreg(Surv(hour, censored) ~ backup + age + bridgecrane +
+                         servo + gear + trashrack + slope + elevation, 
+                       data = df, dist = 'weibull')
+back.model <- step(hurr.aft.w, direction = "backward", k = qchisq(0.03, 1, lower.tail = FALSE))
+```
+```{r}
+summary(hurr.aft.w)
+```
+
+
+The final model: Surv(hour, censored) ~ backup + servo + slope
+
+Analyzing flood failures
+There are 37 pumps with no backup and no servo. 26 pumps with a backup and no servo.
+30 pumps with no backup and a servo. And 22 pumps with both a backup and a servo.
+Since we can only do one upgrade per pump, upgrade the 56 pumps with either or.
+The pumps with the backup and servo had less failures than all of them and the 
+pumps with no backup and no servo had the most failures. You could also make sure
+there is at least a backup for all of them as it seems more pumps failed without
+a backup than those that did not.
+
+Handle by upgrading to include a backup for the first 25 pumps that failed that do not
+have a backup or a servo.
+```{r}
+flood <- df[df$reason == 1,]
+nrow(flood[flood$backup == 0 & flood$servo == 0,])
+nrow(flood[flood$backup == 1 & flood$servo == 0,])
+nrow(flood[flood$backup == 0 & flood$servo == 1,])
+
+```
+
+#### BACKUP IMPACT
+Impact of upgrading Backup for those just missing backup, but have survo
+```{r}
+hurr.aft.w2 <- survreg(Surv(hour, censored) ~ backup + servo + slope, 
+                       data = df, dist = 'weibull')
+survprob.actual = 1- psurvreg(df$hour,
+                              mean = predict(hurr.aft.w2, type = "lp"),
+                              scale = hurr.aft.w2$scale,
+                              distribution = hurr.aft.w2$dist)
+new_time = qsurvreg(1 - survprob.actual,
+                    mean = predict(hurr.aft.w2, type = "lp") +
+                      coef(hurr.aft.w2)['backup'],
+                    scale = hurr.aft.w2$scale,
+                    distribution = hurr.aft.w2$dist)
+
+df$new_time = new_time
+df$diff = df$new_time - df$hour
+
+impact.back1 = data.frame(df$hour, df$new_time,
+                         df$diff, df$censored, df$backup, df$servo)
+colnames(impact.back1) = c("O.Hour", "N.Hour", "Diff", "Flood Failure", "Backup", "Servo")
+impact.back1 = impact.back1[impact.back1$`Flood Failure` == 1 & impact.back1$Backup == 0
+                           & impact.back1$Servo == 1,]
+impact.back1$bup = rep(1, nrow(impact.back1))
+impact.back1$sup = rep(0, nrow(impact.back1))
+impact.back1$index <- rownames(impact.back1)
+head(impact.back1[order(-impact.back1$Diff),], 25)
+```
+Impact of backup on ones that do not have a backup or a servo
+Biggest difference is about 15 hours
+```{r}
+hurr.aft.w2 <- survreg(Surv(hour, censored) ~ backup + servo + slope, 
+                       data = df, dist = 'weibull')
+survprob.actual = 1- psurvreg(df$hour,
+                              mean = predict(hurr.aft.w2, type = "lp"),
+                              scale = hurr.aft.w2$scale,
+                              distribution = hurr.aft.w2$dist)
+new_time = qsurvreg(1 - survprob.actual,
+                    mean = predict(hurr.aft.w2, type = "lp") +
+                      coef(hurr.aft.w2)['backup'],
+                    scale = hurr.aft.w2$scale,
+                    distribution = hurr.aft.w2$dist)
+
+df$new_time = new_time
+df$diff = df$new_time - df$hour
+
+impact.back2 = data.frame(df$hour, df$new_time,
+                         df$diff, df$censored, df$servo, df$backup)
+colnames(impact.back2) = c("O.Hour", "N.Hour", 
+                          "Diff", "Flood Failure", 
+                          "Servo", "Backup")
+impact.back2 = impact.back2[impact.back2$`Flood Failure` == 1 & impact.back2$Servo == 0 & impact.back2$Backup == 0,]
+impact.back2$bup = rep(1, nrow(impact.back2))
+impact.back2$sup = rep(0, nrow(impact.back2))
+impact.back2$index <- rownames(impact.back2)
+head(impact.back2[order(-impact.back2$Diff),], 25)
+```
+#### SERVO IMPACT
+Impact of upgrading servo for those just missing servo and have a backup
+Biggest difference is about 21 hours
+```{r}
+hurr.aft.w2 <- survreg(Surv(hour, censored) ~ backup + servo + slope, 
+                       data = df, dist = 'weibull')
+survprob.actual = 1- psurvreg(df$hour,
+                              mean = predict(hurr.aft.w2, type = "lp"),
+                              scale = hurr.aft.w2$scale,
+                              distribution = hurr.aft.w2$dist)
+new_time = qsurvreg(1 - survprob.actual,
+                    mean = predict(hurr.aft.w2, type = "lp") +
+                      coef(hurr.aft.w2)['servo'],
+                    scale = hurr.aft.w2$scale,
+                    distribution = hurr.aft.w2$dist)
+
+df$new_time = new_time
+df$diff = df$new_time - df$hour
+
+impact.serv1 = data.frame(df$hour, df$new_time,
+                         df$diff, df$censored, df$servo, df$backup)
+colnames(impact.serv1) = c("O.Hour", "N.Hour", "Diff", "Flood Failure", "Servo", "Backup")
+impact.serv1 = impact.serv1[impact.serv1$`Flood Failure` == 1 & impact.serv1$Servo == 0
+                           & impact.serv1$Backup == 1,]
+impact.serv1$sup = rep(1, nrow(impact.serv1))
+impact.serv1$bup = rep(0, nrow(impact.serv1))
+impact.serv1$index <- rownames(impact.serv1)
+head(impact.serv1[order(-impact.serv1$Diff),], 25)
+```
+
+Impact of upgrading to servos for ones that do not have a backup or a servo
+Biggest difference is 22.6 hours
+```{r}
+hurr.aft.w2 <- survreg(Surv(hour, censored) ~ backup + servo + slope, 
+                       data = df, dist = 'weibull')
+survprob.actual = 1- psurvreg(df$hour,
+                              mean = predict(hurr.aft.w2, type = "lp"),
+                              scale = hurr.aft.w2$scale,
+                              distribution = hurr.aft.w2$dist)
+new_time = qsurvreg(1 - survprob.actual,
+                    mean = predict(hurr.aft.w2, type = "lp") +
+                      coef(hurr.aft.w2)['servo'],
+                    scale = hurr.aft.w2$scale,
+                    distribution = hurr.aft.w2$dist)
+
+df$new_time = new_time
+df$diff = df$new_time - df$hour
+
+impact.serv = data.frame(df$hour, df$new_time,
+                         df$diff, df$censored, df$servo, df$backup)
+colnames(impact.serv) = c("O.Hour", "N.Hour", 
+                          "Diff", "Flood Failure", 
+                          "Servo", "Backup")
+impact.serv2 = impact.serv[impact.serv$`Flood Failure` == 1 & impact.serv$Servo == 0 & impact.serv$Backup == 0,]
+impact.serv2$sup = rep(1, nrow(impact.serv2))
+impact.serv2$bup = rep(0, nrow(impact.serv2))
+impact.serv2$index <- rownames(impact.serv2)
+head(impact.serv2[order(-impact.serv2$Diff),], 25)
+```
+
+Finding the top upgrades that will maximize the difference in survival.
+
+```{r}
+combined_df = rbind(impact.back1, impact.back2, impact.serv1, impact.serv2)
+combined_df[order(-combined_df$Diff),]
+```
+
+
+
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+
+# Define costs
+servo_cost <- 150000
+backup_cost <- 100000
+
+# Assume `data` is the name of your dataframe in R
+combined_df <- data %>%
+  # Calculate benefit per dollar for servo and backup upgrades
+  mutate(
+    Servo_Benefit_per_Dollar = ifelse(sup == 1, Diff / servo_cost, 0),
+    Backup_Benefit_per_Dollar = ifelse(bup == 1, Diff / backup_cost, 0),
+    
+    # Select the highest benefit per dollar for each row
+    Highest_Benefit_per_Dollar = pmax(Servo_Benefit_per_Dollar, Backup_Benefit_per_Dollar),
+    
+    # Assign Source based on the highest benefit per dollar
+    Source = ifelse(Highest_Benefit_per_Dollar == Servo_Benefit_per_Dollar, "Servo", "Backup"),
+    
+    # Assign the relevant Diff and Benefit_per_Dollar values based on Source
+    Chosen_Diff = ifelse(Source == "Servo", Diff * sup, Diff * bup),
+    Chosen_Benefit_per_Dollar = ifelse(Source == "Servo", Servo_Benefit_per_Dollar, Backup_Benefit_per_Dollar),
+    
+    # Assign Upgrade Cost based on the Source
+    Upgrade_Cost = ifelse(Source == "Servo", servo_cost, backup_cost)
+  ) %>%
+  
+  # Sort the dataframe by Highest Benefit per Dollar in descending order
+  arrange(desc(Highest_Benefit_per_Dollar)) %>%
+  
+  # Calculate the running total of upgrade costs
+  mutate(Running_Total_Cost = cumsum(Upgrade_Cost))
+
+# Filter to keep only rows where the Running Total Cost is within the budget
+result <- combined_df %>%
+  filter(Running_Total_Cost <= 2500000) %>%
+  select(index, Source, Chosen_Diff, Chosen_Benefit_per_Dollar, Running_Total_Cost)
+
+# Display the result
+print(result)
+
+```
+
+
+
+
+```{r}
+
+write.csv(result, 'pumpUpgrades.csv', row.names = F)
+
+```
+
+
+
