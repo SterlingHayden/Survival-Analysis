@@ -1,6 +1,6 @@
 ---
 title: "SA_HW2_Code"
-author: "Patience Jones"
+author: "SH"
 date: "2024-11-11"
 output: html_document
 ---
